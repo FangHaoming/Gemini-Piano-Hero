@@ -1,0 +1,5 @@
+{
+  "name": "Piano Hero",
+  "description": "An interactive piano keyboard game that uses AI to generate sheet music for any song you can name. Learn to play your favorite tunes with real-time feedback and guidance.",
+  "requestFramePermissions": []
+}
