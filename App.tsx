@@ -14,6 +14,7 @@ const App: React.FC = () => {
     const [pressedNotes, setPressedNotes] = useState<Record<string, { correct: boolean | null }>>({});
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
     const [demoPlayingNotes, setDemoPlayingNotes] = useState<string[]>([]);
+    const [isDemoPlaying, setIsDemoPlaying] = useState(false);
     
     const synth = useRef<any>(null);
     const audioInitializationPromise = useRef<Promise<void> | null>(null);
@@ -107,6 +108,7 @@ const App: React.FC = () => {
         setCorrectlyPlayedNotes(new Set());
         setPressedNotes({});
         setErrorMessage(null);
+        setIsDemoPlaying(false);
     };
 
     const handleSongSubmit = async (prompt: string) => {
@@ -166,6 +168,7 @@ const App: React.FC = () => {
         setCurrentEventIndex(0);
         setCorrectlyPlayedNotes(new Set());
         setPressedNotes({});
+        setIsDemoPlaying(false);
     };
 
     const handleNoteOn = useCallback((playedNote: string) => {
@@ -297,7 +300,7 @@ const App: React.FC = () => {
         };
     }, [handleKeyDown, handleKeyUp]);
 
-    const notesToHighlight = gameState === 'playing' 
+    const notesToHighlight = gameState === 'playing' && !isDemoPlaying
         ? (noteEvents[currentEventIndex] || []).filter(note => !correctlyPlayedNotes.has(note))
         : [];
     
@@ -335,6 +338,8 @@ const App: React.FC = () => {
                     initializeAudio={initializeAudio}
                     playNote={playDemoNote}
                     setDemoPlayingNotes={setDemoPlayingNotes}
+                    isDemoPlaying={isDemoPlaying}
+                    setIsDemoPlaying={setIsDemoPlaying}
                 />
             </main>
 

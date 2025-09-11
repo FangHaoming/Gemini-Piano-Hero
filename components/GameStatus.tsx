@@ -12,6 +12,8 @@ interface GameStatusProps {
     initializeAudio: () => Promise<void>;
     playNote: (note: string) => void;
     setDemoPlayingNotes: React.Dispatch<React.SetStateAction<string[]>>;
+    isDemoPlaying: boolean;
+    setIsDemoPlaying: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
 const LoadingSpinner: React.FC = () => (
@@ -26,10 +28,11 @@ interface PlaybackButtonProps {
     playNote: (note: string) => void;
     initializeAudio: () => Promise<void>;
     setDemoPlayingNotes: React.Dispatch<React.SetStateAction<string[]>>;
+    isPlaying: boolean;
+    setIsPlaying: React.Dispatch<React.SetStateAction<boolean>>;
 }
 
-const PlaybackButton: React.FC<PlaybackButtonProps> = ({ songData, playNote, initializeAudio, setDemoPlayingNotes }) => {
-    const [isPlaying, setIsPlaying] = useState(false);
+const PlaybackButton: React.FC<PlaybackButtonProps> = ({ songData, playNote, initializeAudio, setDemoPlayingNotes, isPlaying, setIsPlaying }) => {
     const playbackTimeouts = useRef<number[]>([]);
 
     const stopPlayback = useCallback(() => {
@@ -37,7 +40,7 @@ const PlaybackButton: React.FC<PlaybackButtonProps> = ({ songData, playNote, ini
         playbackTimeouts.current = [];
         setDemoPlayingNotes([]);
         setIsPlaying(false);
-    }, [setDemoPlayingNotes]);
+    }, [setDemoPlayingNotes, setIsPlaying]);
 
     const handlePlayback = useCallback(async () => {
         if (isPlaying) {
@@ -97,7 +100,7 @@ const PlaybackButton: React.FC<PlaybackButtonProps> = ({ songData, playNote, ini
 
         playbackTimeouts.current = timeouts;
 
-    }, [songData, playNote, initializeAudio, setDemoPlayingNotes, isPlaying, stopPlayback]);
+    }, [songData, playNote, initializeAudio, setDemoPlayingNotes, isPlaying, stopPlayback, setIsPlaying]);
     
     useEffect(() => {
         return () => {
@@ -112,7 +115,7 @@ const PlaybackButton: React.FC<PlaybackButtonProps> = ({ songData, playNote, ini
     )
 }
 
-export const GameStatus: React.FC<GameStatusProps> = ({ state, songData, currentEventIndex, totalEvents, errorMessage, onReset, onPlayAgain, playNote, initializeAudio, setDemoPlayingNotes }) => {
+export const GameStatus: React.FC<GameStatusProps> = ({ state, songData, currentEventIndex, totalEvents, errorMessage, onReset, onPlayAgain, playNote, initializeAudio, setDemoPlayingNotes, isDemoPlaying, setIsDemoPlaying }) => {
     
     const handleExport = useCallback((dataToExport: SongData | null) => {
         if (!dataToExport) return;
@@ -145,7 +148,14 @@ export const GameStatus: React.FC<GameStatusProps> = ({ state, songData, current
                 <div className="w-full text-center flex flex-col items-center gap-4">
                     <h2 className="text-2xl font-bold">{songData.title}</h2>
                     <div className="flex items-center gap-2">
-                      <PlaybackButton songData={songData} playNote={playNote} initializeAudio={initializeAudio} setDemoPlayingNotes={setDemoPlayingNotes} />
+                      <PlaybackButton 
+                        songData={songData} 
+                        playNote={playNote} 
+                        initializeAudio={initializeAudio} 
+                        setDemoPlayingNotes={setDemoPlayingNotes}
+                        isPlaying={isDemoPlaying}
+                        setIsPlaying={setIsDemoPlaying}
+                      />
                       <button
                         onClick={() => handleExport(songData)}
                         className="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-500 transition-colors"
