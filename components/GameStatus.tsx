@@ -143,25 +143,23 @@ export const GameStatus: React.FC<GameStatusProps> = ({ state, songData, current
             const progress = totalEvents > 0 ? (currentEventIndex / totalEvents) * 100 : 0;
             return (
                 <div className="w-full text-center flex flex-col items-center gap-4">
-                    <div className="flex justify-between items-center w-full max-w-md">
-                      <h2 className="text-2xl font-bold">{songData.title}</h2>
-                      <div className="flex items-center gap-2">
-                        <PlaybackButton songData={songData} playNote={playNote} initializeAudio={initializeAudio} setDemoPlayingNotes={setDemoPlayingNotes} />
-                        <button
-                          onClick={() => handleExport(songData)}
-                          className="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-500 transition-colors"
-                          aria-label="Export song data as JSON"
-                        >
-                          Export
-                        </button>
-                        <button 
-                          onClick={onReset} 
-                          className="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-500 transition-colors"
-                          aria-label="Go back to song selection"
-                        >
-                          Back
-                        </button>
-                      </div>
+                    <h2 className="text-2xl font-bold">{songData.title}</h2>
+                    <div className="flex items-center gap-2">
+                      <PlaybackButton songData={songData} playNote={playNote} initializeAudio={initializeAudio} setDemoPlayingNotes={setDemoPlayingNotes} />
+                      <button
+                        onClick={() => handleExport(songData)}
+                        className="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-500 transition-colors"
+                        aria-label="Export song data as JSON"
+                      >
+                        Export
+                      </button>
+                      <button 
+                        onClick={onReset} 
+                        className="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-500 transition-colors"
+                        aria-label="Go back to song selection"
+                      >
+                        Back
+                      </button>
                     </div>
                     <div className="w-full max-w-md bg-gray-700 rounded-full h-4">
                         <div
