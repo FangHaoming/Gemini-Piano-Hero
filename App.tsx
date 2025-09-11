@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { SongInput } from './components/SongInput.tsx';
 import { PianoKeyboard } from './components/PianoKeyboard.tsx';
 import { GameStatus } from './components/GameStatus.tsx';
@@ -9,39 +9,92 @@ import type { SongData, GameState } from './types.ts';
 const App: React.FC = () => {
     const [gameState, setGameState] = useState<GameState>('idle');
     const [songData, setSongData] = useState<SongData | null>(null);
-    const [currentNoteIndex, setCurrentNoteIndex] = useState(0);
-    const [pressedNotes, setPressedNotes] = useState<Record<string, { correct: boolean }>>({});
+    const [currentEventIndex, setCurrentEventIndex] = useState(0);
+    const [correctlyPlayedNotes, setCorrectlyPlayedNotes] = useState<Set<string>>(new Set());
+    const [pressedNotes, setPressedNotes] = useState<Record<string, { correct: boolean | null }>>({});
     const [errorMessage, setErrorMessage] = useState<string | null>(null);
-    const [isAudioReady, setIsAudioReady] = useState(false);
-    const [demoPlayingNote, setDemoPlayingNote] = useState<string | null>(null);
+    const [demoPlayingNotes, setDemoPlayingNotes] = useState<string[]>([]);
     
     const synth = useRef<any>(null);
+    const audioInitializationPromise = useRef<Promise<void> | null>(null);
     const activeNotes = useRef(new Set<string>());
     const activeKeyMap = useRef<Record<string, string>>({});
-    // Fix: Initialize useRef with null to provide an initial value. This resolves the error where useRef<number> was called without arguments.
     const animationFrameId = useRef<number | null>(null);
 
-    // Refactored: Create a ref to hold game logic state. This prevents re-creating
-    // event handlers on every note press, which was causing intermittent missed key presses.
-    const gameLogicState = useRef({ gameState, songData, currentNoteIndex });
+    const noteEvents = useMemo(() => {
+        if (!songData) return [];
+        const events = new Map<number, string[]>();
+        songData.notes.forEach(note => {
+            const existingNotes = events.get(note.timing) || [];
+            if (!existingNotes.includes(note.note)) {
+                 events.set(note.timing, [...existingNotes, note.note]);
+            }
+        });
+        return Array.from(events.entries())
+            .sort(([timeA], [timeB]) => timeA - timeB)
+            .map(([, notes]) => notes);
+    }, [songData]);
 
-    // Keep the ref in sync with the latest state values.
-    useEffect(() => {
-        gameLogicState.current = { gameState, songData, currentNoteIndex };
-    }, [gameState, songData, currentNoteIndex]);
 
+    const initializeAudio = useCallback(() => {
+        // If synth is already created, we are ready.
+        if (synth.current) {
+            return Promise.resolve();
+        }
 
-    const initializeAudio = useCallback(async () => {
-        if (isAudioReady) return;
-        // @ts-ignore
-        await Tone.start();
-        // @ts-ignore
-        synth.current = new Tone.PolySynth(Tone.Synth).toDestination();
-        // Fix: Increase polyphony to prevent notes from being dropped during rapid play.
-        synth.current.maxPolyphony = 32;
-        setIsAudioReady(true);
-        console.log("Audio context started.");
-    }, [isAudioReady]);
+        // If initialization is already in progress, return the existing promise.
+        if (audioInitializationPromise.current) {
+            return audioInitializationPromise.current;
+        }
+
+        console.log("Audio context starting, loading samples...");
+
+        // Create a new initialization promise
+        const promise = new Promise<void>(async (resolve, reject) => {
+            try {
+                // @ts-ignore
+                await Tone.start();
+                
+                // @ts-ignore
+                const sampler = new Tone.Sampler({
+                    urls: {
+                        'C2': 'C2.mp3',
+                        'C3': 'C3.mp3',
+                        'C4': 'C4.mp3',
+                        'C5': 'C5.mp3',
+                        'C6': 'C6.mp3',
+                        'C7': 'C7.mp3',
+                    },
+                    release: 1,
+                    baseUrl: "https://tonejs.github.io/audio/salamander/",
+                    onload: () => {
+                        synth.current = sampler;
+                        console.log("Piano samples loaded and audio context ready.");
+                        audioInitializationPromise.current = null; // Clear promise on success
+                        resolve();
+                    },
+                    onerror: (error) => {
+                        console.error("Error loading piano samples:", error);
+                        setErrorMessage("Failed to load piano sounds. Please check your network connection and try again.");
+                        setGameState('error');
+                        audioInitializationPromise.current = null; // Clear promise on error to allow retry
+                        reject(error);
+                    }
+                }).toDestination();
+
+            } catch (error) {
+                console.error("Could not start Tone.js AudioContext:", error);
+                setErrorMessage("Could not start audio. Please interact with the page and try again.");
+                setGameState('error');
+                audioInitializationPromise.current = null; // Clear promise on error to allow retry
+                reject(error);
+            }
+        });
+        
+        audioInitializationPromise.current = promise;
+        return promise;
+
+    }, []);
 
     const playDemoNote = useCallback((note: string) => {
         if (synth.current) {
@@ -49,30 +102,60 @@ const App: React.FC = () => {
         }
     }, []);
 
+    const resetStateForNewSong = () => {
+        setCurrentEventIndex(0);
+        setCorrectlyPlayedNotes(new Set());
+        setPressedNotes({});
+        setErrorMessage(null);
+    };
+
     const handleSongSubmit = async (prompt: string) => {
-        await initializeAudio();
         setGameState('loading');
         setSongData(null);
-        setCurrentNoteIndex(0);
-        setErrorMessage(null);
+        resetStateForNewSong();
 
         try {
+            await initializeAudio();
             const data = await fetchSongData(prompt);
             setSongData(data);
             setGameState('playing');
         } catch (error) {
-            console.error(error);
-            setErrorMessage('Could not generate the song. Please try another one.');
-            setGameState('error');
+            console.error("Failed to start song:", error);
+            // Error state is set within initializeAudio or we set it here for fetchSongData
+            if (gameState !== 'error') {
+                setErrorMessage('Could not generate the song. Please try another one.');
+                setGameState('error');
+            }
         }
     };
     
+    const handleSongImport = async (data: SongData) => {
+        setGameState('loading');
+        setSongData(null);
+        resetStateForNewSong();
+
+        try {
+            await initializeAudio();
+            setSongData(data);
+            setGameState('playing');
+        } catch (error) {
+            console.error("Failed to import song:", error);
+             if (gameState !== 'error') {
+                setErrorMessage('Could not load the imported song. Please try again.');
+                setGameState('error');
+            }
+        }
+    };
+
+    const handleImportError = (message: string) => {
+        setErrorMessage(message);
+        setGameState('error');
+    };
+
     const resetGame = () => {
         setGameState('idle');
         setSongData(null);
-        setCurrentNoteIndex(0);
-        setErrorMessage(null);
-        setPressedNotes({});
+        resetStateForNewSong();
         if (animationFrameId.current) {
             cancelAnimationFrame(animationFrameId.current);
         }
@@ -80,41 +163,48 @@ const App: React.FC = () => {
 
     const playAgain = () => {
         setGameState('playing');
-        setCurrentNoteIndex(0);
+        setCurrentEventIndex(0);
+        setCorrectlyPlayedNotes(new Set());
         setPressedNotes({});
     };
 
-    // Refactored: The event handler now reads from the gameLogicState ref instead of
-    // depending on state variables. This makes its function reference stable,
-    // so the global event listeners are not constantly removed and re-added.
     const handleNoteOn = useCallback((playedNote: string) => {
-        const { gameState, songData } = gameLogicState.current;
-        let isCorrect = true;
+        if (gameState === 'playing') {
+            const currentNotes = noteEvents[currentEventIndex] || [];
+            const isCorrectAttempt = currentNotes.includes(playedNote);
+            const isAlreadyPlayed = correctlyPlayedNotes.has(playedNote);
 
-        if (gameState === 'playing' && songData) {
-            const expectedNote = songData.notes[gameLogicState.current.currentNoteIndex];
-            if (playedNote === expectedNote.note) {
-                isCorrect = true;
-                setCurrentNoteIndex(prev => {
-                    const currentSongData = gameLogicState.current.songData;
-                    if (currentSongData && prev < currentSongData.notes.length && currentSongData.notes[prev].note === playedNote) {
-                        const nextIndex = prev + 1;
-                        if (nextIndex >= currentSongData.notes.length) {
-                            setGameState('finished');
-                        }
-                        return nextIndex;
+            setPressedNotes(prev => ({
+                ...prev,
+                [playedNote]: { correct: isCorrectAttempt }
+            }));
+            
+            if (isCorrectAttempt && !isAlreadyPlayed) {
+                const newPlayedNotes = new Set(correctlyPlayedNotes);
+                newPlayedNotes.add(playedNote);
+
+                const allNotesInEventPlayed = currentNotes.every(note => newPlayedNotes.has(note));
+
+                if (allNotesInEventPlayed) {
+                    const nextIndex = currentEventIndex + 1;
+                    if (nextIndex >= noteEvents.length) {
+                        setGameState('finished');
                     }
-                    return prev;
-                });
-            } else {
-                isCorrect = false;
+                    // Batch state updates for advancing
+                    setCurrentEventIndex(nextIndex);
+                    setCorrectlyPlayedNotes(new Set());
+                } else {
+                    setCorrectlyPlayedNotes(newPlayedNotes);
+                }
             }
+        } else {
+            // Handle free play mode
+            setPressedNotes(prev => ({
+                ...prev,
+                [playedNote]: { correct: null } // Neutral state
+            }));
         }
-        setPressedNotes(prev => ({
-            ...prev,
-            [playedNote]: { correct: isCorrect }
-        }));
-    }, []); // Empty dependencies make this function stable.
+    }, [gameState, noteEvents, currentEventIndex, correctlyPlayedNotes]);
 
     const handleNoteOff = useCallback((playedNote: string) => {
         if (synth.current && activeNotes.current.has(playedNote)) {
@@ -131,16 +221,19 @@ const App: React.FC = () => {
     const handleNoteOnWithSound = useCallback(async (note: string) => {
         if (activeNotes.current.has(note)) return;
 
-        if (!isAudioReady) {
+        try {
             await initializeAudio();
+            // After await, synth.current should be available if successful
+            if (synth.current) {
+                synth.current.triggerAttack(note);
+                activeNotes.current.add(note);
+                handleNoteOn(note);
+            }
+        } catch (error) {
+            // Error is already handled and displayed by initializeAudio
+            console.log("Skipping note playback due to audio initialization failure.");
         }
-        
-        if (synth.current) {
-            synth.current.triggerAttack(note);
-            activeNotes.current.add(note);
-            handleNoteOn(note);
-        }
-    }, [isAudioReady, initializeAudio, handleNoteOn]);
+    }, [initializeAudio, handleNoteOn]);
 
 
     const handleKeyDown = useCallback(async (event: KeyboardEvent) => {
@@ -149,8 +242,17 @@ const App: React.FC = () => {
         const keyChar = CODE_TO_KEY_MAP[event.code];
         if (!keyChar) return;
 
-        const keyId = event.shiftKey ? `shift+${keyChar}` : keyChar;
-        const playedNote = KEY_MAP[keyId];
+        let playedNote: string | undefined;
+        // First, try to find a mapping for the shifted key (e.g., 'shift+t' for C#4)
+        if (event.shiftKey) {
+            playedNote = KEY_MAP[`shift+${keyChar}`];
+        }
+
+        // If no shifted mapping is found (e.g., for 'shift+f'), or if shift is not pressed,
+        // fall back to the base key mapping (e.g., 'f' for E5).
+        if (!playedNote) {
+            playedNote = KEY_MAP[keyChar];
+        }
 
         if (playedNote) {
             event.preventDefault();
@@ -171,8 +273,6 @@ const App: React.FC = () => {
         }
     }, [handleNoteOff]);
     
-    // The dependencies for this effect are now much more stable, preventing
-    // the listeners from being churned on every note press.
     useEffect(() => {
         window.addEventListener('keydown', handleKeyDown);
         window.addEventListener('keyup', handleKeyUp);
@@ -197,9 +297,12 @@ const App: React.FC = () => {
         };
     }, [handleKeyDown, handleKeyUp]);
 
-    const noteToHighlight = gameState === 'playing' && songData ? songData.notes[currentNoteIndex]?.note : null;
-    const upcomingNotes = gameState === 'playing' && songData 
-        ? songData.notes.slice(currentNoteIndex + 1, currentNoteIndex + 5).map(n => n.note) 
+    const notesToHighlight = gameState === 'playing' 
+        ? (noteEvents[currentEventIndex] || []).filter(note => !correctlyPlayedNotes.has(note))
+        : [];
+    
+    const upcomingNotes = gameState === 'playing' && noteEvents.length > 0
+        ? noteEvents.slice(currentEventIndex + 1, currentEventIndex + 5).flat()
         : [];
 
     return (
@@ -212,32 +315,37 @@ const App: React.FC = () => {
             </header>
             
             <main className="w-full max-w-4xl bg-gray-800 rounded-2xl shadow-2xl p-6 flex flex-col items-center gap-8 mb-4">
-                {/* Fix: Widened the condition to include the 'loading' state. This resolves a TypeScript error where the check `gameState === 'loading'` would always be false due to type narrowing. Now, the SongInput component remains visible but disabled during loading, which is a better user experience. */}
                 {gameState === 'idle' || gameState === 'error' || gameState === 'loading' ? (
-                    <SongInput onSubmit={handleSongSubmit} isLoading={gameState === 'loading'} />
+                    <SongInput
+                        onSubmit={handleSongSubmit}
+                        onImport={handleSongImport}
+                        onImportError={handleImportError}
+                        isLoading={gameState === 'loading'}
+                    />
                 ) : null}
 
                 <GameStatus
                     state={gameState}
                     songData={songData}
-                    currentNoteIndex={currentNoteIndex}
+                    currentEventIndex={currentEventIndex}
+                    totalEvents={noteEvents.length}
                     errorMessage={errorMessage}
                     onReset={resetGame}
                     onPlayAgain={playAgain}
                     initializeAudio={initializeAudio}
                     playNote={playDemoNote}
-                    setDemoPlayingNote={setDemoPlayingNote}
+                    setDemoPlayingNotes={setDemoPlayingNotes}
                 />
             </main>
 
             <footer className="w-full">
                 <PianoKeyboard 
-                  noteToHighlight={noteToHighlight}
+                  notesToHighlight={notesToHighlight}
                   upcomingNotes={upcomingNotes}
                   pressedNotes={pressedNotes}
                   onNoteDown={handleNoteOnWithSound}
                   onNoteUp={handleNoteOff}
-                  demoPlayingNote={demoPlayingNote}
+                  demoPlayingNotes={demoPlayingNotes}
                 />
             </footer>
         </div>

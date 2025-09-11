@@ -4,14 +4,14 @@ import type { GameState, SongData } from '../types.ts';
 interface GameStatusProps {
     state: GameState;
     songData: SongData | null;
-    currentNoteIndex: number;
+    currentEventIndex: number;
+    totalEvents: number;
     errorMessage: string | null;
     onReset: () => void;
     onPlayAgain: () => void;
     initializeAudio: () => Promise<void>;
     playNote: (note: string) => void;
-    // Fix: Corrected the type of `setDemoPlayingNote` to `React.Dispatch<React.SetStateAction<string | null>>`. This allows passing a state updater function, which resolves a TypeScript error in the playback logic where such a function is used.
-    setDemoPlayingNote: React.Dispatch<React.SetStateAction<string | null>>;
+    setDemoPlayingNotes: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
 const LoadingSpinner: React.FC = () => (
@@ -25,20 +25,19 @@ interface PlaybackButtonProps {
     songData: SongData;
     playNote: (note: string) => void;
     initializeAudio: () => Promise<void>;
-    // Fix: Corrected the type of `setDemoPlayingNote` to `React.Dispatch<React.SetStateAction<string | null>>`. This aligns with the parent component's state setter and fixes a type error.
-    setDemoPlayingNote: React.Dispatch<React.SetStateAction<string | null>>;
+    setDemoPlayingNotes: React.Dispatch<React.SetStateAction<string[]>>;
 }
 
-const PlaybackButton: React.FC<PlaybackButtonProps> = ({ songData, playNote, initializeAudio, setDemoPlayingNote }) => {
+const PlaybackButton: React.FC<PlaybackButtonProps> = ({ songData, playNote, initializeAudio, setDemoPlayingNotes }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const playbackTimeouts = useRef<number[]>([]);
 
     const stopPlayback = useCallback(() => {
         playbackTimeouts.current.forEach(clearTimeout);
         playbackTimeouts.current = [];
-        setDemoPlayingNote(null);
+        setDemoPlayingNotes([]);
         setIsPlaying(false);
-    }, [setDemoPlayingNote]);
+    }, [setDemoPlayingNotes]);
 
     const handlePlayback = useCallback(async () => {
         if (isPlaying) {
@@ -48,41 +47,57 @@ const PlaybackButton: React.FC<PlaybackButtonProps> = ({ songData, playNote, ini
 
         await initializeAudio();
         setIsPlaying(true);
-        setDemoPlayingNote(null);
+        setDemoPlayingNotes([]);
 
         const beatDurationMs = (60 / songData.bpm) * 1000;
         const timeouts: number[] = [];
 
+        // Group notes by timing to handle chords
+        const events = new Map<number, string[]>();
         songData.notes.forEach(note => {
-            const startTimeMs = note.timing * beatDurationMs;
-            const noteDurationMs = note.duration * beatDurationMs;
+            const existing = events.get(note.timing) || [];
+            if (!existing.includes(note.note)) {
+                events.set(note.timing, [...existing, note.note]);
+            }
+        });
+        
+        const sortedEvents = Array.from(events.entries()).sort(([a], [b]) => a - b);
+
+        let totalDuration = 0;
+
+        sortedEvents.forEach(([timing, notesInEvent]) => {
+            const startTimeMs = timing * beatDurationMs;
 
             const playTimeout = setTimeout(() => {
-                playNote(note.note);
-                setDemoPlayingNote(note.note);
+                notesInEvent.forEach(note => playNote(note));
+                setDemoPlayingNotes(notesInEvent);
             }, startTimeMs);
             timeouts.push(playTimeout as unknown as number);
+            
+            // Find the duration of this event to know when to turn off the highlight
+            const notesDataForEvent = songData.notes.filter(n => n.timing === timing);
+            const maxDuration = notesDataForEvent.reduce((max, note) => Math.max(max, note.duration), 0);
+            const eventDurationMs = maxDuration * beatDurationMs;
 
             const stopTimeout = setTimeout(() => {
-                setDemoPlayingNote(currentNote => (currentNote === note.note ? null : currentNote));
-            }, startTimeMs + (noteDurationMs * 0.95));
+                // Remove only the notes from this event, in case other notes are still playing
+                setDemoPlayingNotes(currentNotes => currentNotes.filter(cn => !notesInEvent.includes(cn)));
+            }, startTimeMs + (eventDurationMs * 0.95));
             timeouts.push(stopTimeout as unknown as number);
-        });
 
-        const totalDuration = songData.notes.length > 0
-            ? (songData.notes[songData.notes.length - 1].timing + songData.notes[songData.notes.length - 1].duration) * beatDurationMs
-            : 0;
+            totalDuration = Math.max(totalDuration, startTimeMs + eventDurationMs);
+        });
             
         const finishTimeout = setTimeout(() => {
             setIsPlaying(false);
-            setDemoPlayingNote(null);
+            setDemoPlayingNotes([]);
             playbackTimeouts.current = [];
         }, totalDuration + 50);
         timeouts.push(finishTimeout as unknown as number);
 
         playbackTimeouts.current = timeouts;
 
-    }, [songData, playNote, initializeAudio, setDemoPlayingNote, isPlaying, stopPlayback]);
+    }, [songData, playNote, initializeAudio, setDemoPlayingNotes, isPlaying, stopPlayback]);
     
     useEffect(() => {
         return () => {
@@ -97,19 +112,48 @@ const PlaybackButton: React.FC<PlaybackButtonProps> = ({ songData, playNote, ini
     )
 }
 
-export const GameStatus: React.FC<GameStatusProps> = ({ state, songData, currentNoteIndex, errorMessage, onReset, onPlayAgain, playNote, initializeAudio, setDemoPlayingNote }) => {
+export const GameStatus: React.FC<GameStatusProps> = ({ state, songData, currentEventIndex, totalEvents, errorMessage, onReset, onPlayAgain, playNote, initializeAudio, setDemoPlayingNotes }) => {
+    
+    const handleExport = useCallback((dataToExport: SongData | null) => {
+        if (!dataToExport) return;
+
+        const sanitizedTitle = dataToExport.title.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        const filename = `${sanitizedTitle || 'song'}.json`;
+        
+        const jsonString = JSON.stringify(dataToExport, null, 2);
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        
+        document.body.appendChild(link);
+        link.click();
+        
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    }, []);
+
     switch (state) {
         case 'loading':
             return <LoadingSpinner />;
         case 'playing':
             if (!songData) return null;
-            const progress = (currentNoteIndex / songData.notes.length) * 100;
+            const progress = totalEvents > 0 ? (currentEventIndex / totalEvents) * 100 : 0;
             return (
                 <div className="w-full text-center flex flex-col items-center gap-4">
                     <div className="flex justify-between items-center w-full max-w-md">
                       <h2 className="text-2xl font-bold">{songData.title}</h2>
                       <div className="flex items-center gap-2">
-                        <PlaybackButton songData={songData} playNote={playNote} initializeAudio={initializeAudio} setDemoPlayingNote={setDemoPlayingNote} />
+                        <PlaybackButton songData={songData} playNote={playNote} initializeAudio={initializeAudio} setDemoPlayingNotes={setDemoPlayingNotes} />
+                        <button
+                          onClick={() => handleExport(songData)}
+                          className="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-500 transition-colors"
+                          aria-label="Export song data as JSON"
+                        >
+                          Export
+                        </button>
                         <button 
                           onClick={onReset} 
                           className="px-4 py-2 text-sm bg-gray-600 text-white rounded-lg hover:bg-gray-500 transition-colors"
@@ -125,7 +169,7 @@ export const GameStatus: React.FC<GameStatusProps> = ({ state, songData, current
                             style={{ width: `${progress}%` }}
                         ></div>
                     </div>
-                    <p className="text-gray-400">{currentNoteIndex} / {songData.notes.length} notes played</p>
+                    <p className="text-gray-400">{currentEventIndex} / {totalEvents} events played</p>
                 </div>
             );
         case 'finished':
@@ -139,6 +183,13 @@ export const GameStatus: React.FC<GameStatusProps> = ({ state, songData, current
                             className="px-6 py-3 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-500 transform hover:scale-105 transition-transform"
                         >
                             Play Again
+                        </button>
+                        <button
+                            onClick={() => handleExport(songData)}
+                            className="px-6 py-3 bg-gray-600 text-white font-bold rounded-lg hover:bg-gray-500 transform hover:scale-105 transition-transform"
+                            aria-label="Export song data as JSON"
+                        >
+                            Export as JSON
                         </button>
                         <button
                             onClick={onReset}

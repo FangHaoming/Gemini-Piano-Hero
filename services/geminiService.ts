@@ -32,23 +32,29 @@ const schema = {
 };
 
 export const fetchSongData = async (userInput: string): Promise<SongData> => {
-    const prompt = `You are a creative musical AI. Your task is to generate a simple piano melody in JSON format based on the user's input. The user might provide a specific song title or a descriptive prompt for a mood or scene.
+    const prompt = `You are a creative musical AI. Your task is to generate a piano melody in JSON format based on the user's input. The melody should be playable by a beginner.
 
 User's request: "${userInput}"
 
-Analyze the request:
-- If it seems to be a specific, well-known song title, generate the sheet music for that song's main melody.
-- If it's a description (e.g., "a happy, upbeat tune," "a slow, melancholic melody for a rainy day," "music for a lazy beach sunset"), create a short, original melody that fits the description.
+**Analysis and Generation Rules:**
 
-The output must be a single JSON object. The JSON object should contain the song title (either the original title or a creative title based on the description), the BPM (beats per minute), and a list of notes. Each note in the list should be an object with three properties: 'note' (the scientific pitch notation, e.g., 'C4'), 'duration' (in beats, where 1 is a quarter note), and 'timing' (the beat on which the note starts, starting from 0). 
+1.  **Input Interpretation**:
+    - If the user's request is enclosed in double quotes ("" or “”), or book title marks (《》), it is a **specific song title**. Your primary goal is to generate the main melody for that exact song.
+    - Otherwise, treat the request as a **descriptive prompt** for a mood or scene and create an original melody.
 
-Please provide a simplified, single-note melody suitable for a beginner. 
+2.  **Content Generation**:
+    - For song titles: Generate a substantial portion of the song's main melody.
+    - For descriptive prompts: Create a complete and original melody that fits the description.
 
-The playable notes are in the 5-octave range C2 to C7. The computer keyboard mapping is as follows:
-- White Keys: 1234567890qwertyuiopasdfghjkklzxcvbnm
-- Black Keys: Use Shift + the corresponding white key's character (e.g., Shift+1 for C#2, Shift+2 for D#2, etc.).
+3.  **Duration**: The generated melody MUST be at least 60 seconds long. The total duration is determined by the BPM and the total number of beats (the 'timing' of the last note plus its 'duration'). For example, a song at 120 BPM needs at least 120 beats to reach 60 seconds.
 
-Please generate a melody that primarily uses these notes. Make sure note timings are sequential and make musical sense.`;
+4.  **Simplicity & Chords**: The melody must be suitable for a beginner. You can include simple chords (multiple notes played at the same time) to make the music richer. A chord is represented by multiple note objects having the exact same 'timing' value. Do not create complex chords; dyads (two notes) and triads (three notes) are preferred.
+
+5.  **Range**: All notes must be within the 5-octave range of C2 to C7.
+
+6.  **Musicality**: Ensure note timings are sequential and make musical sense.
+
+The output must be a single JSON object. The JSON object should contain the song title, the BPM, and a list of notes. Each note object must have 'note' (e.g., 'C4'), 'duration' (in beats), and 'timing' (start beat).`;
 
     try {
         const response = await ai.models.generateContent({

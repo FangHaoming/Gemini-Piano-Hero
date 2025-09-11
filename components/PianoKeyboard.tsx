@@ -2,15 +2,15 @@ import React from 'react';
 import { PIANO_KEYS } from '../constants.ts';
 
 interface PianoKeyboardProps {
-    noteToHighlight: string | null;
+    notesToHighlight: string[];
     upcomingNotes: string[];
-    pressedNotes: Record<string, { correct: boolean }>;
+    pressedNotes: Record<string, { correct: boolean | null }>;
     onNoteDown: (note: string) => void;
     onNoteUp: (note: string) => void;
-    demoPlayingNote: string | null;
+    demoPlayingNotes: string[];
 }
 
-export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ noteToHighlight, upcomingNotes, pressedNotes, onNoteDown, onNoteUp, demoPlayingNote }) => {
+export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ notesToHighlight, upcomingNotes, pressedNotes, onNoteDown, onNoteUp, demoPlayingNotes }) => {
     const whiteKeys = PIANO_KEYS.filter(k => k.type === 'white');
     const WHITE_KEY_WIDTH_PX = 28; // Equivalent to w-7
     const BLACK_KEY_WIDTH_PX = 20; // Equivalent to w-5
@@ -30,15 +30,22 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ noteToHighlight, u
                 <div className="absolute top-0 left-0 flex flex-row">
                     {whiteKeys.map((key) => {
                         const { note } = key;
-                        const isHighlighted = note === noteToHighlight;
-                        const isUpcoming = upcomingNotes.includes(note);
+                        const isHighlighted = notesToHighlight.includes(note);
                         const pressInfo = pressedNotes[note];
                         const isPressed = !!pressInfo;
-                        const isDemoNote = note === demoPlayingNote;
+                        // An upcoming note is only shown if it's not currently highlighted or pressed
+                        const isUpcoming = upcomingNotes.includes(note) && !isHighlighted && !isPressed;
+                        const isDemoNote = demoPlayingNotes.includes(note);
                         
                         let dynamicClasses = 'bg-white hover:bg-gray-200';
                         if (isPressed) {
-                            dynamicClasses = pressInfo.correct ? 'bg-green-300' : 'bg-red-300';
+                            if (pressInfo.correct === true) {
+                                dynamicClasses = 'bg-green-300';
+                            } else if (pressInfo.correct === false) {
+                                dynamicClasses = 'bg-red-300';
+                            } else { // Neutral free-play press
+                                dynamicClasses = 'bg-gray-400';
+                            }
                         } else if (isDemoNote) {
                             dynamicClasses = 'bg-yellow-300';
                         } else if (isHighlighted) {
@@ -74,16 +81,21 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ noteToHighlight, u
                         }
                         
                         const { note } = key;
-                        const isHighlighted = note === noteToHighlight;
-                        const isUpcoming = upcomingNotes.includes(note);
+                        const isHighlighted = notesToHighlight.includes(note);
                         const pressInfo = pressedNotes[note];
                         const isPressed = !!pressInfo;
-                        const isDemoNote = note === demoPlayingNote;
+                        const isUpcoming = upcomingNotes.includes(note) && !isHighlighted && !isPressed;
+                        const isDemoNote = demoPlayingNotes.includes(note);
                         
-                        // Use slate for a more bluish-grey, remove borders for a flatter look
                         let dynamicClasses = 'bg-slate-800 hover:bg-slate-700';
                         if (isPressed) {
-                            dynamicClasses = pressInfo.correct ? 'bg-green-500' : 'bg-red-500';
+                            if (pressInfo.correct === true) {
+                                dynamicClasses = 'bg-green-500';
+                            } else if (pressInfo.correct === false) {
+                                dynamicClasses = 'bg-red-500';
+                            } else { // Neutral free-play press
+                                dynamicClasses = 'bg-slate-600';
+                            }
                         } else if (isDemoNote) {
                             dynamicClasses = 'bg-yellow-400';
                         } else if (isHighlighted) {
@@ -105,10 +117,9 @@ export const PianoKeyboard: React.FC<PianoKeyboardProps> = ({ noteToHighlight, u
                                     left: leftPosition,
                                     width: BLACK_KEY_WIDTH_PX,
                                     height: KEYBOARD_HEIGHT_PX * 0.6,
-                                    boxShadow: 'inset 0 -4px 8px rgba(0,0,0,0.3)', // Add subtle shadow for depth
+                                    boxShadow: 'inset 0 -4px 8px rgba(0,0,0,0.3)',
                                 }}
                             >
-                                {/* Vertically stacked shift icon and key character */}
                                 <div className="font-sans font-bold text-white text-xs flex flex-col items-center leading-none">
                                     <span className="text-sm">↑</span>
                                     <span>{key.key.toUpperCase()}</span>
